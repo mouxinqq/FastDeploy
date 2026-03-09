@@ -130,7 +130,8 @@ func TestCachedProcessTokenSelectWorker(t *testing.T) {
 		tc3 := GetOrCreateTokenCounter(ctx, "worker3")
 		tc3.Add(100)
 
-		// Message "abcd" = 4 runes, produces 1 block hash, but no prior Record => no match
+		// Message "abcd" = 4 runes, reqTokens = estimateTokens("abcd") = 8
+		// No prior Record => no match, effective = raw + 8 for all
 		selected, err := CachedProcessTokenSelectWorker(ctx, workers, "abcd")
 		assert.NoError(t, err)
 		assert.Equal(t, "worker2", selected) // Lowest raw tokens wins
@@ -148,15 +149,15 @@ func TestCachedProcessTokenSelectWorker(t *testing.T) {
 
 		// Use a message with enough runes to form blocks (blockSize=4)
 		// "abcdefgh" = 8 runes => charsToTokens produces 8 ints => 2 block hashes
-		// Each block match = 4 * 2 = 8 estimateTokens; 2 blocks = 16 estimateTokens
+		// reqTokens = estimateTokens("abcdefgh") = 16, matched = 2 blocks * 4 * 2 = 16
 		message := "abcdefgh"
 
 		// Record this message prefix for worker1 (simulate prior request)
 		tokens := charsToTokens(message)
 		DefaultScheduler.prefillCache.cache.Record(tokens, "worker1")
 
-		// worker1: raw=200, matched=16 => effective=184
-		// worker2: raw=190, matched=0  => effective=190
+		// worker1: (raw=200 + req=16) - matched=16 = effective=200
+		// worker2: (raw=190 + req=16) - matched=0  = effective=206
 		tc1 := GetOrCreateTokenCounter(ctx, "worker1")
 		tc1.Add(200)
 		tc2 := GetOrCreateTokenCounter(ctx, "worker2")
@@ -185,8 +186,8 @@ func TestCachedProcessTokenSelectWorker(t *testing.T) {
 		tc2 := GetOrCreateTokenCounter(ctx, "worker2")
 		tc2.Add(5)
 
-		// Short message with no cache hit: effective = raw for both
-		// worker1: effective=10, worker2: effective=5 => worker2 selected
+		// Short message "ab" = 2 runes => reqTokens = 4, no cache hit
+		// worker1: effective = 10+4 = 14, worker2: effective = 5+4 = 9 => worker2 selected
 		selected, err := CachedProcessTokenSelectWorker(ctx, workers, "ab")
 		assert.NoError(t, err)
 		assert.Equal(t, "worker2", selected)
@@ -206,7 +207,7 @@ func TestCachedProcessTokenSelectWorker(t *testing.T) {
 		// message "abcdefgh" = 8 runes => 2 blocks => Record writes 2 block hashes
 		message := "abcdefgh"
 
-		// Round 1: no cache, both raw=0 => first worker in list wins
+		// Round 1: no cache, both raw=0, reqTokens=16 => effective both=16, tie => first worker wins
 		selected1, err := CachedProcessTokenSelectWorker(ctx, workers, message)
 		assert.NoError(t, err)
 		assert.Equal(t, "worker1", selected1)
