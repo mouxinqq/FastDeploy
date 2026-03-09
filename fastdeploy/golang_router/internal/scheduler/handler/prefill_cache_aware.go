@@ -270,6 +270,41 @@ func (c *radixPrefixCache) Match(tokens []int, allowed map[string]struct{}) map[
 	return result
 }
 
+// MatchTokenCount returns estimated matched token count (estimateTokens scale) per candidate worker.
+// matched_tokens = matched_blocks * blockSize * 2 (aligned with estimateTokens: rune_count * 2)
+func (c *radixPrefixCache) MatchTokenCount(tokens []int, allowed map[string]struct{}) map[string]uint64 {
+	result := make(map[string]uint64)
+	hashes := c.hasher.prefixHashes(tokens)
+	if len(hashes) == 0 {
+		return result
+	}
+
+	c.mu.RLock()
+	node, matched := c.matchPrefixHelper(c.root, hashes)
+	length := matched
+	for n := node; n != nil; n = n.parent {
+		tokenCount := uint64(length * c.hasher.blockSize * 2)
+		for w := range n.workers {
+			if allowed != nil {
+				if _, ok := allowed[w]; !ok {
+					continue
+				}
+			}
+			if tokenCount > result[w] {
+				result[w] = tokenCount
+			}
+		}
+		if len(result) > 0 {
+			break
+		}
+		if n.parent != nil {
+			length = n.parent.contextLen
+		}
+	}
+	c.mu.RUnlock()
+	return result
+}
+
 // Record inserts block-hash prefix into radix tree and tags worker
 func (c *radixPrefixCache) Record(tokens []int, worker string) {
 	if worker == "" {

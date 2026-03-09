@@ -100,6 +100,8 @@ func SelectWorker(ctx context.Context, workers []string, message string, workerT
 		strategyFunc = FDMetricsScoreSelectWorker
 	case "cache_aware":
 		strategyFunc = CacheAwarePrefillSelectWorker
+	case "cached_process_token":
+		strategyFunc = CachedProcessTokenSelectWorker
 	default:
 		strategyFunc = RandomSelectWorker
 	}
